@@ -1,0 +1,62 @@
+[
+  {
+    "question": "What is the central research question addressed by the study?",
+    "relevant_pages": [1, 2]
+  },
+  {
+    "question": "How does the study define hybrid retrieval?",
+    "relevant_pages": [2, 3]
+  },
+  {
+    "question": "What role does BM25 play in the retrieval pipeline?",
+    "relevant_pages": [3, 4]
+  },
+  {
+    "question": "What is the advantage of semantic vector search in retrieval?",
+    "relevant_pages": [4, 5]
+  },
+  {
+    "question": "How does reciprocal rank fusion combine rankings?",
+    "relevant_pages": [5, 6]
+  },
+  {
+    "question": "What is the purpose of cross-encoder reranking?",
+    "relevant_pages": [6, 7]
+  },
+  {
+    "question": "Why is the final answer grounded only in retrieved context?",
+    "relevant_pages": [7, 8]
+  },
+  {
+    "question": "What type of evaluation metrics are used in the study?",
+    "relevant_pages": [8, 9]
+  },
+  {
+    "question": "What is Recall@K used to measure?",
+    "relevant_pages": [8, 9]
+  },
+  {
+    "question": "How is MRR computed in the evaluation framework?",
+    "relevant_pages": [9, 10]
+  },
+  {
+    "question": "Why is retrieval latency important for PDF question answering?",
+    "relevant_pages": [10, 11]
+  },
+  {
+    "question": "What does the paper say about the limitations of keyword search alone?",
+    "relevant_pages": [11, 12]
+  },
+  {
+    "question": "What does the system do when answer evidence is missing from the documents?",
+    "relevant_pages": [12, 13]
+  },
+  {
+    "question": "How does the system maintain conversational context during a session?",
+    "relevant_pages": [13, 14]
+  },
+  {
+    "question": "What are the main future directions described in the paper?",
+    "relevant_pages": [14, 15]
+  }
+]

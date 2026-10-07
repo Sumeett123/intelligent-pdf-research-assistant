@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.streamlit/
+
+# Uploaded and generated local documents
+data/*.pdf
+data/nltk_data/
+
+# Local editor and OS files
+.vscode/
+.idea/
+*.log
+Thumbs.db
