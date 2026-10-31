@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from backend.bm25_retriever import BM25Retriever
-from backend.chunker import chunk_pages
+from backend.chunker import chunk_pages, chunk_text
 from backend.citation import make_citation
 from backend.embeddings import EmbeddingService
 from backend.hybrid_retriever import hybrid_search
@@ -16,19 +16,30 @@ from backend.llm_service import LLMService
 from backend.pdf_processor import extract_pages_from_pdf
 from backend.query_understanding import expand_query
 from backend.reranker import Reranker
+from backend.summarization import DocumentSummarizer, is_summary_request
 from backend.vector_store import VectorStore
 
 DEFAULT_TOP_K = 50
+ANSWER_CONTEXT_LIMIT = 12
 
 
 class ResearchAssistant:
-    def __init__(self):
-        self.embedding_service = EmbeddingService()
+    def __init__(
+        self,
+        embedding_service: EmbeddingService | None = None,
+        reranker: Reranker | None = None,
+        llm_service: LLMService | None = None,
+    ):
+        # Dependency reuse is optional. Standard Streamlit/API operation still
+        # constructs its own services; extension comparison can share the
+        # heavy read-only models across isolated per-paper indexes.
+        self.embedding_service = embedding_service or EmbeddingService()
         self.dimension = self.embedding_service.model.get_sentence_embedding_dimension()
         self.vector_store = VectorStore(self.dimension)
         self.bm25_retriever = BM25Retriever()
-        self.reranker = Reranker()
-        self.llm_service = LLMService()
+        self.reranker = reranker or Reranker()
+        self.llm_service = llm_service or LLMService()
+        self.summarizer = DocumentSummarizer()
         self.documents: Dict[str, Dict[str, Any]] = {}
         self.chunks: List[Dict[str, Any]] = []
 
@@ -54,6 +65,50 @@ class ResearchAssistant:
         self.documents[document_name] = {
             "document_name": document_name,
             "page_count": len(pages),
+            "chunk_count": len(new_chunks),
+            "status": "Ready",
+            "chunk_size": chunk_size,
+            "overlap": overlap,
+        }
+        return self.documents[document_name]
+
+    def add_text_document(
+        self,
+        document_name: str,
+        text: str,
+        chunk_size: int = 900,
+        overlap: int = 120,
+    ) -> Dict[str, Any]:
+        """Index browser-extracted text through the same RAG pipeline as PDFs.
+
+        Browser content has no reliable PDF page boundaries, so it is represented
+        as one virtual page. The resulting chunks still pass through embeddings,
+        BM25, hybrid retrieval, and reranking exactly like uploaded PDFs.
+        """
+        normalized_text = text.strip()
+        if not normalized_text:
+            raise ValueError("The page contains no readable text.")
+
+        self.chunks = [chunk for chunk in self.chunks if chunk["document_name"] != document_name]
+        text_chunks = chunk_text(normalized_text, chunk_size=chunk_size, overlap=overlap)
+        if not text_chunks:
+            raise ValueError("The page contains no readable text after processing.")
+
+        new_chunks = [
+            {
+                "document_name": document_name,
+                "page_number": 1,
+                "chunk_id": f"{document_name}-p1-c{index}",
+                "section_index": 1,
+                "text": chunk,
+            }
+            for index, chunk in enumerate(text_chunks, start=1)
+        ]
+        self.chunks.extend(new_chunks)
+        self._rebuild_indexes()
+        self.documents[document_name] = {
+            "document_name": document_name,
+            "page_count": 1,
             "chunk_count": len(new_chunks),
             "status": "Ready",
             "chunk_size": chunk_size,
@@ -126,13 +181,13 @@ class ResearchAssistant:
             section_terms = set(re.findall(r"[a-zA-Z0-9]+", section_text))
             coverage = len(question_terms.intersection(section_terms))
             best_score = max(float(chunk.get("combined_score", chunk.get("rerank_score", 0.0))) for chunk in section_chunks)
-            ranked_sections.append((coverage, best_score, section_key, section_chunks))
+            # The cross-encoder score represents semantic relevance. Lexical
+            # coverage is only a tie-breaker because paraphrases may share no
+            # words with the source document.
+            ranked_sections.append((best_score, coverage, section_key, section_chunks))
 
         ranked_sections.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        best_coverage, _, best_key, best_chunks = ranked_sections[0]
-        minimum_coverage = 2 if len(question_terms) >= 2 else 1
-        if best_coverage < minimum_coverage:
-            return []
+        _, _, best_key, best_chunks = ranked_sections[0]
 
         selected = list(best_chunks)
         for chunk in self.chunks:
@@ -182,6 +237,8 @@ class ResearchAssistant:
         retrieval_mode: str = "Hybrid Search",
         top_k: int = DEFAULT_TOP_K,
         rerank_top_k: int = DEFAULT_TOP_K,
+        chat_history: str = "",
+        context_limit: int = ANSWER_CONTEXT_LIMIT,
     ) -> Dict[str, Any]:
         started_at = time.perf_counter()
         if not question or not question.strip():
@@ -190,6 +247,37 @@ class ResearchAssistant:
             raise ValueError("Please upload at least one PDF before asking a question.")
 
         original_question = question.strip()
+        if is_summary_request(original_question):
+            started_generation = time.perf_counter()
+            summary_context = self.summarizer.select_context(self.chunks)
+            response = self.summarizer.summarize(
+                original_question,
+                self.chunks,
+                self.llm_service,
+            )
+            completed_at = time.perf_counter()
+            sources = [
+                make_citation(
+                    chunk.get("document_name", "unknown.pdf"),
+                    chunk.get("page_number", 0),
+                    chunk.get("chunk_id", "unknown"),
+                )
+                for chunk in summary_context
+            ]
+            return {
+                "answer": response.get("answer", "").strip(),
+                "sources": response.get("sources", sources),
+                "retrieval_mode": "Document Summary",
+                "candidate_count": len(summary_context),
+                "reranked_count": 0,
+                "relevant_count": len(summary_context),
+                "timings_ms": {
+                    "total": round((completed_at - started_at) * 1000, 1),
+                    "retrieval": 0.0,
+                    "reranking": 0.0,
+                    "generation": round((completed_at - started_generation) * 1000, 1),
+                },
+            }
         retrieval_question = expand_query(original_question)
         semantic_queries = [original_question]
         if retrieval_question != original_question:
@@ -221,14 +309,16 @@ class ResearchAssistant:
         if not candidates:
             raise ValueError("No relevant chunks were found for this question.")
 
-        reranked = self.reranker.rerank(question, candidates, top_k=rerank_top_k)
+        # Rerank with the understood query so paraphrases such as "pros of"
+        # are compared with document wording such as "advantages of".
+        reranked = self.reranker.rerank(retrieval_question, candidates, top_k=rerank_top_k)
         rerank_finished_at = time.perf_counter()
         relevant_reranked = self._select_relevant_section(question, reranked)
         if not relevant_reranked:
             raise ValueError("The uploaded documents do not contain enough relevant evidence to answer this question.")
-        answer_chunks = self._select_answer_chunks(relevant_reranked)
+        answer_chunks = self._select_answer_chunks(relevant_reranked, limit=context_limit)
 
-        llm_response = self.llm_service.generate(question, answer_chunks)
+        llm_response = self.llm_service.generate(question, answer_chunks, chat_history=chat_history)
         completed_at = time.perf_counter()
 
         sources = []

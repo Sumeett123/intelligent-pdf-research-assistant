@@ -15,6 +15,7 @@ Academic and research workflows often involve large PDF collections that contain
 - Combine BM25, dense vector retrieval, and reciprocal rank fusion for hybrid retrieval.
 - Rerank candidate chunks with a cross-encoder before passing them to an LLM.
 - Generate grounded answers with explicit page-level citations from the source documents.
+- Generate document-wide summaries when the user asks for a summary, overview, or key points.
 - Provide a research-oriented evaluation framework to compare retrieval methods.
 
 ## 4. Features
@@ -33,6 +34,9 @@ Academic and research workflows often involve large PDF collections that contain
 ## 5. Architecture
 
 The Streamlit UI and FastAPI service both use the same in-memory `ResearchAssistant`. Uploaded PDFs are processed into page-aware chunks and indexed for dense and lexical retrieval. Questions use hybrid retrieval by default, followed by reranking and grounded answer generation.
+Summary requests are detected by the dedicated `backend/summarization.py` module and use
+document-ordered chunks directly, so they do not fail because a summary request has no
+single question/answer section to retrieve.
 
 ```mermaid
 flowchart TD

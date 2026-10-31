@@ -11,7 +11,16 @@ from sentence_transformers import SentenceTransformer
 class EmbeddingService:
     def __init__(self, model_name: str | None = None):
         self.model_name = model_name or os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
-        self.model = SentenceTransformer(self.model_name)
+        # This project currently runs with the CPU-only PyTorch build. Passing
+        # the device explicitly avoids SentenceTransformer attempting to move
+        # meta tensors during model initialization.
+        self.device = os.getenv("EMBEDDING_DEVICE", "cpu").strip().lower() or "cpu"
+        if self.device != "cpu":
+            raise ValueError(
+                f"Unsupported embedding device '{self.device}'. "
+                "Use EMBEDDING_DEVICE=cpu for the installed CPU-only runtime."
+            )
+        self.model = SentenceTransformer(self.model_name, device=self.device)
         self._query_cache: OrderedDict[str, np.ndarray] = OrderedDict()
         self._query_cache_size = 128
 

@@ -22,6 +22,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
+if "uploader_version" not in st.session_state:
+    st.session_state.uploader_version = 0
 
 assistant = st.session_state.assistant
 
@@ -46,7 +48,12 @@ with st.sidebar:
             "not generated LLM prose. Add the key to .env and restart the app for natural-language answers."
         )
 
-    uploaded_files = st.file_uploader("Upload PDFs", type=["pdf"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader(
+        "Upload PDFs",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key=f"pdf_uploader_{st.session_state.uploader_version}",
+    )
     if uploaded_files:
         for file in uploaded_files:
             if file.name in st.session_state.processed_files:
@@ -65,6 +72,7 @@ with st.sidebar:
         assistant.clear_documents()
         st.session_state.processed_files.clear()
         st.session_state.messages = []
+        st.session_state.uploader_version += 1
         st.rerun()
 
     st.caption(f"Model configured: {assistant.llm_service.configuration_status()}")

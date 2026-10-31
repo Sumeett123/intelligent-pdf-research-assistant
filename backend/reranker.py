@@ -31,7 +31,13 @@ def is_heading_match(query: str, text: str) -> bool:
 class Reranker:
     def __init__(self, model_name: str | None = None):
         self.model_name = model_name or os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-        self.model = CrossEncoder(self.model_name)
+        self.device = os.getenv("RERANKER_DEVICE", "cpu").strip().lower() or "cpu"
+        if self.device != "cpu":
+            raise ValueError(
+                f"Unsupported reranker device '{self.device}'. "
+                "Use RERANKER_DEVICE=cpu for the installed CPU-only runtime."
+            )
+        self.model = CrossEncoder(self.model_name, device=self.device)
 
     def rerank(self, query: str, candidates: List[Dict[str, Any]], top_k: int = 50) -> List[Dict[str, Any]]:
         if not candidates:

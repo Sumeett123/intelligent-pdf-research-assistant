@@ -16,6 +16,27 @@ def test_answer_context_expands_only_within_matching_section():
     assert [chunk["chunk_id"] for chunk in selected] == ["doc-p6-c1", "doc-p6-c2"]
 
 
+def test_answer_context_limit_prevents_large_generation_context():
+    assistant = ResearchAssistant.__new__(ResearchAssistant)
+    assistant.chunks = [
+        {
+            "chunk_id": f"doc-p1-c{i}",
+            "document_name": "doc.pdf",
+            "page_number": 1,
+            "section_index": 1,
+            "text": f"Relevant passage {i}",
+        }
+        for i in range(20)
+    ]
+
+    selected = assistant._select_answer_chunks(
+        [{"chunk_id": "doc-p1-c0", "document_name": "doc.pdf", "section_index": 1}],
+        limit=12,
+    )
+
+    assert len(selected) == 12
+
+
 def test_question_section_can_continue_across_pages():
     from backend.chunker import chunk_pages
 
@@ -78,6 +99,32 @@ def test_relevant_section_uses_retrieval_metadata_when_section_is_nested():
     assert [chunk["chunk_id"] for chunk in selected] == ["doc-p1-c1"]
 
 
+def test_relevant_section_prefers_semantic_score_over_word_overlap():
+    assistant = ResearchAssistant.__new__(ResearchAssistant)
+    assistant.chunks = [
+        {"chunk_id": "doc-p1-c1", "document_name": "doc.pdf", "page_number": 1, "section_index": 1, "text": "A semantically relevant answer."},
+        {"chunk_id": "doc-p2-c1", "document_name": "doc.pdf", "page_number": 2, "section_index": 2, "text": "A distractor with many repeated query words."},
+    ]
+    reranked = [
+        {
+            "chunk_id": "doc-p1-c1",
+            "metadata": assistant.chunks[0],
+            "text": assistant.chunks[0]["text"],
+            "combined_score": 4.0,
+        },
+        {
+            "chunk_id": "doc-p2-c1",
+            "metadata": assistant.chunks[1],
+            "text": assistant.chunks[1]["text"],
+            "combined_score": 1.0,
+        },
+    ]
+
+    selected = assistant._select_relevant_section("Explain the topic", reranked)
+
+    assert [chunk["chunk_id"] for chunk in selected] == ["doc-p1-c1"]
+
+
 def test_fallback_answer_does_not_repeat_question_header():
     from backend.llm_service import LLMService
 
@@ -89,3 +136,35 @@ def test_fallback_answer_does_not_repeat_question_header():
 
     assert "Explain the importance" not in result["answer"]
     assert "support coordination" in result["answer"]
+
+
+def test_fallback_answer_maps_paraphrased_pros_and_cons():
+    from backend.llm_service import LLMService
+
+    service = LLMService.__new__(LLMService)
+    result = service._fallback_answer(
+        "What are the pros and cons of information systems?",
+        [
+            {
+                "document_name": "doc.pdf",
+                "page_number": 6,
+                "text": "Advantages of Information System: Storage and protection of information.",
+            },
+            {
+                "document_name": "doc.pdf",
+                "page_number": 7,
+                "text": "Disadvantages of Information System: Security breaches can occur.",
+            },
+        ],
+    )
+
+    assert "Storage and protection" in result["answer"]
+    assert "Security breaches" in result["answer"]
+
+
+def test_answer_cleanup_removes_redundant_synonym_parentheses():
+    from backend.llm_service import LLMService
+
+    service = LLMService.__new__(LLMService)
+
+    assert service._clean_answer("Four advantages (pros) are listed.") == "Four advantages are listed."

@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Research Assistant & Paper Comparator",
+  "version": "0.6.4",
+  "description": "Ask about a page or compare research papers with cited evidence.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://localhost:8000/*", "http://127.0.0.1:8000/*", "<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "Research Assistant & Paper Comparator" }
+}
